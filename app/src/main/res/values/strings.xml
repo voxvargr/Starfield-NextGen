@@ -1,7 +1,5 @@
 <resources>
-    <string name="app_name">3D Starfield Wallpaper</string>
-    <string name="wallpaper_description">A beautiful 3D starfield with galaxies</string>
-    <string name="set_wallpaper">Set as Wallpaper</string>
-    <string name="wallpaper_title">3D Starfield Wallpaper</string>
-    <string name="wallpaper_description_long">Experience a beautiful 3D starfield with galaxies on your home screen</string>
+    <string name="app_name">Starfield NextGen</string>
+    <string name="wallpaper_name">Starfield NextGen</string>
+    <string name="wallpaper_description">A fast starfield live wallpaper with close-pass miniature solar systems.</string>
 </resources>

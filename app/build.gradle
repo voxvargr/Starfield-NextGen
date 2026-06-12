@@ -4,88 +4,30 @@ plugins {
 }
 
 android {
-    namespace 'com.example.starfieldwallpaper'
-    compileSdk 34
+    namespace 'com.sundek.starfieldnextgen'
+    compileSdk 36
 
     defaultConfig {
-        applicationId "com.example.starfieldwallpaper"
-        minSdk 24
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        applicationId 'com.sundek.starfieldnextgen'
+        minSdk 23
+        targetSdk 36
+        versionCode 14
+        versionName '0.14.0-opengl'
     }
 
     buildTypes {
         release {
-            minifyEnabled true
+            minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
-    
-    sourceSets {
-        main {
-            jniLibs.srcDirs = ['libs']
-        }
-    }
-    
+
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
-    
+
     kotlinOptions {
-        jvmTarget = '1.8'
-    }
-    
-    packagingOptions {
-        exclude 'META-INF/robovm/ios/robovm.xml'
-    }
-}
-
-configurations { natives }
-
-dependencies {
-    // Core LibGDX
-    implementation "com.badlogicgames.gdx:gdx-backend-android:1.11.0"
-    natives "com.badlogicgames.gdx:gdx-platform:1.11.0:natives-armeabi-v7a"
-    natives "com.badlogicgames.gdx:gdx-platform:1.11.0:natives-arm64-v8a"
-    natives "com.badlogicgames.gdx:gdx-platform:1.11.0:natives-x86"
-    natives "com.badlogicgames.gdx:gdx-platform:1.11.0:natives-x86_64"
-    
-    // AndroidX
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.10.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    
-    // LiveWallpaper support
-    implementation 'com.github.skyfe79:android-livewallpaper:1.1.1'
-}
-
-// Copy the natives to the appropriate directory
-task copyAndroidNatives() {
-    file("src/main/jniLibs/armeabi-v7a/").mkdirs()
-    file("src/main/jniLibs/arm64-v8a/").mkdirs()
-    file("src/main/jniLibs/x86/").mkdirs()
-    file("src/main/jniLibs/x86_64/").mkdirs()
-
-    configurations.natives.files.each { jar ->
-        def outputDir = null
-        if (jar.name.endsWith("natives-armeabi-v7a.jar")) outputDir = file("src/main/jniLibs/armeabi-v7a")
-        if (jar.name.endsWith("natives-arm64-v8a.jar")) outputDir = file("src/main/jniLibs/arm64-v8a")
-        if (jar.name.endsWith("natives-x86.jar")) outputDir = file("src/main/jniLibs/x86")
-        if (jar.name.endsWith("natives-x86_64.jar")) outputDir = file("src/main/jniLibs/x86_64")
-        if (outputDir != null) {
-            copy {
-                from zipTree(jar)
-                into outputDir
-                include "*.so"
-            }
-        }
-    }
-}
-
-tasks.whenTaskAdded { packageTask ->
-    if (packageTask.name.contains("merge") && packageTask.name.contains("JniLibs") || packageTask.name.contains("bundle")) {
-        packageTask.dependsOn 'copyAndroidNatives'
+        jvmTarget = '17'
     }
 }

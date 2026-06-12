@@ -1,0 +1,6 @@
+<resources>
+    <color name="starfield_background">#05070D</color>
+    <color name="starfield_text_primary">#FFFFFFFF</color>
+    <color name="starfield_text_secondary">#FFC6D6F5</color>
+    <color name="starfield_accent">#FF9DBBFF</color>
+</resources>

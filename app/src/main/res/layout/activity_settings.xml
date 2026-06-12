@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/settingsScroll"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/starfield_background">
+
+    <LinearLayout
+        android:id="@+id/settingsRoot"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="42dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Starfield Settings"
+            android:textColor="@color/starfield_text_primary"
+            android:textSize="28sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="12dp"
+            android:text="This file exists as a fallback resource. The settings screen is currently generated in Kotlin."
+            android:textColor="@color/starfield_text_secondary"
+            android:textSize="15sp" />
+
+    </LinearLayout>
+</ScrollView>
