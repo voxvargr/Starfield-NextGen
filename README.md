@@ -1,13 +1,6 @@
-# Starfield NextGen
+Alright first off, I DID vibe code this. I've been using a starfield live wallpaper for years over several devices at this point and I've always wanted more options and more realism.
 
-OpenGL ES Android live wallpaper prototype.
+So this idea was born. Dust clouds, nebulas, binary star systems, ability to see planets orbiting stars when they get close for a flyby, varied size/colors of stars in realistic ratios, and 30/60/90/120 FPS
+all with settings to tweak to your liking.
 
-## v0.15 nebula pass-through + binary refinement
-- Smoothed near-camera nebula fade-out so close nebulas no longer pop/disappear abruptly.
-- Nebulas now keep traveling slightly past the observer before they recycle.
-- Close nebulas become a bit larger/softer during the pass-through to feel more volumetric.
-- Refined binary star flybys with shared-center orbits, unequal mass/brightness, orbit orientation, and more related companion colors.
-- Fixed preview/applied wallpaper setting sync by forcing the running home/lock engine to reload preferences when it becomes visible and by polling settings while running.
-- Kept the v0.14 realism features including 12,000 max stars, 120 FPS mode, galactic plane bias, and interstellar dust.
-
-Open in Android Studio, let Gradle sync, skip the Gradle plugin update for now, then build a debug APK.
+this is all free and open source, give me your suggestions or fork it even, I'm open to everything
