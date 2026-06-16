@@ -15,8 +15,10 @@ data class StarfieldConfig(
     val binaryChance: Float,
     val starDirectionDrift: Float,
     val galacticPlaneStrength: Float,
+    val clusterAmount: Float,
     val dustAmount: Float,
     val nebulaCount: Int,
+    val blackHoleChance: Float,
     val nebulaBrightness: Float,
     val nebulaMotion: Float,
     val starMinBrightness: Float,
@@ -24,7 +26,8 @@ data class StarfieldConfig(
     val trailsEnabled: Boolean,
     val orbitLinesEnabled: Boolean,
     val glowEnabled: Boolean,
-    val nebulasEnabled: Boolean
+    val nebulasEnabled: Boolean,
+    val blackHolesEnabled: Boolean
 )
 
 object StarfieldPrefs {
@@ -40,8 +43,10 @@ object StarfieldPrefs {
     const val KEY_BINARY_CHANCE = "binary_chance_percent"
     const val KEY_STAR_DIRECTION_DRIFT = "star_direction_drift_percent"
     const val KEY_GALACTIC_PLANE = "galactic_plane_percent"
+    const val KEY_STAR_CLUSTERS = "star_cluster_percent"
     const val KEY_INTERSTELLAR_DUST = "interstellar_dust_percent"
     const val KEY_NEBULA_COUNT = "nebula_count"
+    const val KEY_BLACK_HOLE_CHANCE = "black_hole_chance_percent"
     const val KEY_NEBULA_BRIGHTNESS = "nebula_brightness_percent"
     const val KEY_NEBULA_MOTION = "nebula_motion_percent"
     const val KEY_STAR_MIN_BRIGHTNESS = "star_min_brightness_percent"
@@ -50,6 +55,7 @@ object StarfieldPrefs {
     const val KEY_ORBIT_LINES = "orbit_lines_enabled"
     const val KEY_GLOW = "glow_enabled"
     const val KEY_NEBULAS = "nebulas_enabled"
+    const val KEY_BLACK_HOLES = "black_holes_enabled"
 
     const val MIN_STAR_COUNT = 120
     const val MAX_STAR_COUNT = 12000
@@ -64,8 +70,10 @@ object StarfieldPrefs {
     const val DEFAULT_BINARY_CHANCE_PERCENT = 6
     const val DEFAULT_STAR_DIRECTION_DRIFT_PERCENT = 16
     const val DEFAULT_GALACTIC_PLANE_PERCENT = 28
+    const val DEFAULT_STAR_CLUSTER_PERCENT = 18
     const val DEFAULT_INTERSTELLAR_DUST_PERCENT = 22
     const val DEFAULT_NEBULA_COUNT = 6
+    const val DEFAULT_BLACK_HOLE_CHANCE_PERCENT = 12
     const val DEFAULT_NEBULA_BRIGHTNESS_PERCENT = 84
     const val DEFAULT_NEBULA_MOTION_PERCENT = 72
     const val DEFAULT_STAR_MIN_BRIGHTNESS_PERCENT = 22
@@ -74,6 +82,7 @@ object StarfieldPrefs {
     const val DEFAULT_ORBIT_LINES = false
     const val DEFAULT_GLOW = true
     const val DEFAULT_NEBULAS = true
+    const val DEFAULT_BLACK_HOLES = true
 
     fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -94,12 +103,15 @@ object StarfieldPrefs {
         val binaryChancePercent = sp.getInt(KEY_BINARY_CHANCE, DEFAULT_BINARY_CHANCE_PERCENT).coerceIn(0, 50)
         val starDirectionDriftPercent = sp.getInt(KEY_STAR_DIRECTION_DRIFT, DEFAULT_STAR_DIRECTION_DRIFT_PERCENT).coerceIn(0, 100)
         val galacticPlanePercent = sp.getInt(KEY_GALACTIC_PLANE, DEFAULT_GALACTIC_PLANE_PERCENT).coerceIn(0, 100)
+        val clusterPercent = sp.getInt(KEY_STAR_CLUSTERS, DEFAULT_STAR_CLUSTER_PERCENT).coerceIn(0, 100)
         val interstellarDustPercent = sp.getInt(KEY_INTERSTELLAR_DUST, DEFAULT_INTERSTELLAR_DUST_PERCENT).coerceIn(0, 100)
         val nebulaBrightnessPercent = sp.getInt(KEY_NEBULA_BRIGHTNESS, DEFAULT_NEBULA_BRIGHTNESS_PERCENT).coerceIn(1, 100)
+        val blackHoleChancePercent = sp.getInt(KEY_BLACK_HOLE_CHANCE, DEFAULT_BLACK_HOLE_CHANCE_PERCENT).coerceIn(0, 100)
         val nebulaMotionPercent = sp.getInt(KEY_NEBULA_MOTION, DEFAULT_NEBULA_MOTION_PERCENT).coerceIn(0, 100)
         val starMinBrightnessPercent = sp.getInt(KEY_STAR_MIN_BRIGHTNESS, DEFAULT_STAR_MIN_BRIGHTNESS_PERCENT).coerceIn(0, 100)
         val starMaxBrightnessPercent = sp.getInt(KEY_STAR_MAX_BRIGHTNESS, DEFAULT_STAR_MAX_BRIGHTNESS_PERCENT).coerceIn(20, 220)
         val nebulasEnabled = sp.getBoolean(KEY_NEBULAS, DEFAULT_NEBULAS)
+        val blackHolesEnabled = sp.getBoolean(KEY_BLACK_HOLES, DEFAULT_BLACK_HOLES)
         var starCountPref = sp.getInt(KEY_STAR_COUNT, DEFAULT_STAR_COUNT)
         if (starCountPref in 8200 until MAX_STAR_COUNT) {
             starCountPref = MAX_STAR_COUNT
@@ -117,8 +129,10 @@ object StarfieldPrefs {
             binaryChance = binaryChancePercent / 100f,
             starDirectionDrift = starDirectionDriftPercent / 100f,
             galacticPlaneStrength = galacticPlanePercent / 100f,
+            clusterAmount = clusterPercent / 100f,
             dustAmount = interstellarDustPercent / 100f,
             nebulaCount = if (nebulasEnabled) sp.getInt(KEY_NEBULA_COUNT, DEFAULT_NEBULA_COUNT).coerceIn(0, 20) else 0,
+            blackHoleChance = blackHoleChancePercent / 100f,
             nebulaBrightness = lerp(0.12f, 3.25f, nebulaBrightnessPercent / 100f),
             nebulaMotion = nebulaMotionPercent / 100f,
             starMinBrightness = starMinBrightnessPercent / 100f,
@@ -126,7 +140,8 @@ object StarfieldPrefs {
             trailsEnabled = sp.getBoolean(KEY_TRAILS, DEFAULT_TRAILS),
             orbitLinesEnabled = sp.getBoolean(KEY_ORBIT_LINES, DEFAULT_ORBIT_LINES),
             glowEnabled = sp.getBoolean(KEY_GLOW, DEFAULT_GLOW),
-            nebulasEnabled = nebulasEnabled
+            nebulasEnabled = nebulasEnabled,
+            blackHolesEnabled = blackHolesEnabled
         )
     }
 

@@ -28,7 +28,21 @@ class GlStarfieldRenderer(private val context: Context) {
         const val MAX_PLANETS_PER_SYSTEM = 4
         const val MAX_NEBULAS = 20
         const val MAX_DUST = 3200
+        const val MAX_CLUSTERS = 6
+        const val MAX_BLACK_HOLES = 1
         const val NEBULA_LOBES = 6
+
+        const val TYPE_WARM_WHITE = 0
+        const val TYPE_YELLOW_ORANGE = 1
+        const val TYPE_ORANGE_RED = 2
+        const val TYPE_RED_DWARF = 3
+        const val TYPE_BLUE_WHITE = 4
+        const val TYPE_HOT_BLUE = 5
+        const val TYPE_WHITE_DWARF = 6
+        const val TYPE_RED_GIANT = 7
+        const val TYPE_BLUE_GIANT = 8
+        const val TYPE_BROWN_DWARF = 9
+        const val TYPE_NEUTRON = 10
         const val NOISE_TEXTURE_SIZE = 256
         const val FIELD_OF_VIEW = 0.78f
 
@@ -91,7 +105,11 @@ class GlStarfieldRenderer(private val context: Context) {
         """
 
         const val NEBULA_FRAGMENT_SHADER = """
+            #ifdef GL_FRAGMENT_PRECISION_HIGH
+            precision highp float;
+            #else
             precision mediump float;
+            #endif
             uniform sampler2D u_NoiseTexture;
             uniform float u_Time;
             varying vec2 v_Uv;
@@ -141,6 +159,7 @@ class GlStarfieldRenderer(private val context: Context) {
     private var height = 1
     private var aspect = 1f
     private var initialized = false
+    private var animationTimeSeconds = 0f
 
     private val maxStars = StarfieldPrefs.MAX_STAR_COUNT
     private val starX = FloatArray(maxStars)
@@ -155,6 +174,8 @@ class GlStarfieldRenderer(private val context: Context) {
     private val starB = FloatArray(maxStars)
     private val starLuminosity = FloatArray(maxStars)
     private val starSpawnFade = FloatArray(maxStars)
+    private val starType = IntArray(maxStars)
+    private val starPulsePhase = FloatArray(maxStars)
     private val starIsSystem = BooleanArray(maxStars)
     private val starIsBinary = BooleanArray(maxStars)
     private val planetCount = IntArray(maxStars)
@@ -207,11 +228,31 @@ class GlStarfieldRenderer(private val context: Context) {
     private val dustAlpha = FloatArray(MAX_DUST)
     private val dustSpawnFade = FloatArray(MAX_DUST)
 
+    private val clusterCenterX = FloatArray(MAX_CLUSTERS)
+    private val clusterCenterY = FloatArray(MAX_CLUSTERS)
+    private val clusterWidth = FloatArray(MAX_CLUSTERS)
+
+    private val blackHoleActive = BooleanArray(MAX_BLACK_HOLES)
+    private val blackHoleX = FloatArray(MAX_BLACK_HOLES)
+    private val blackHoleY = FloatArray(MAX_BLACK_HOLES)
+    private val blackHoleZ = FloatArray(MAX_BLACK_HOLES)
+    private val blackHoleSize = FloatArray(MAX_BLACK_HOLES)
+    private val blackHoleSpeed = FloatArray(MAX_BLACK_HOLES)
+    private val blackHoleDriftX = FloatArray(MAX_BLACK_HOLES)
+    private val blackHoleDriftY = FloatArray(MAX_BLACK_HOLES)
+    private val blackHoleSpin = FloatArray(MAX_BLACK_HOLES)
+    private val blackHoleRot = FloatArray(MAX_BLACK_HOLES)
+    private val blackHoleTilt = FloatArray(MAX_BLACK_HOLES)
+    private val blackHoleDiskHue = FloatArray(MAX_BLACK_HOLES)
+
     private val starBuffer = newFloatBuffer(maxStars * 3 * POINT_FLOATS)
     private val planetBuffer = newFloatBuffer(maxStars * MAX_PLANETS_PER_SYSTEM * POINT_FLOATS)
     private val dustBuffer = newFloatBuffer(MAX_DUST * POINT_FLOATS)
     private val lineBuffer = newFloatBuffer(maxStars * 2 * LINE_FLOATS)
     private val nebulaBuffer = newFloatBuffer(MAX_NEBULAS * NEBULA_LOBES * 6 * QUAD_FLOATS)
+    private val blackHoleCoreBuffer = newFloatBuffer(MAX_BLACK_HOLES * 2 * POINT_FLOATS)
+    private val blackHoleDiskBuffer = newFloatBuffer(MAX_BLACK_HOLES * 40 * POINT_FLOATS)
+    private val lensingScratch = FloatArray(3)
 
     private var starProgram = 0
     private var lineProgram = 0
@@ -255,9 +296,11 @@ class GlStarfieldRenderer(private val context: Context) {
         GLES20.glDisable(GLES20.GL_CULL_FACE)
         GLES20.glEnable(GLES20.GL_BLEND)
 
+        resetClusters()
         for (i in 0 until maxStars) resetStar(i, randomDepth = true)
         for (i in 0 until MAX_DUST) resetDust(i, randomDepth = true)
         for (i in 0 until MAX_NEBULAS) resetNebula(i, randomDepth = true)
+        for (i in 0 until MAX_BLACK_HOLES) resetBlackHole(i, randomDepth = true)
         initialized = true
     }
 
@@ -269,7 +312,14 @@ class GlStarfieldRenderer(private val context: Context) {
     }
 
     fun reloadSettings() {
+        val previous = config
         config = StarfieldPrefs.read(context)
+        if (config.clusterAmount > 0.01f && kotlin.math.abs(config.clusterAmount - previous.clusterAmount) > 0.20f) {
+            resetClusters()
+        }
+        if (config.blackHolesEnabled && (!previous.blackHolesEnabled || config.blackHoleChance > previous.blackHoleChance + 0.15f)) {
+            for (i in 0 until MAX_BLACK_HOLES) resetBlackHole(i, randomDepth = true)
+        }
     }
 
     fun draw(dtSeconds: Float, timeSeconds: Float) {
@@ -281,10 +331,17 @@ class GlStarfieldRenderer(private val context: Context) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         GLES20.glEnable(GLES20.GL_BLEND)
 
-        drawNebulas(dt, timeSeconds)
+        animationTimeSeconds += dt
+        // Keep time used by shader/orbit math bounded. After hours of running, very large
+        // float uniforms can lose precision on mobile GPUs and make textured nebulas draw
+        // as solid colored squares instead of soft masked clouds.
+        if (animationTimeSeconds > 240f) animationTimeSeconds -= 240f
+
+        drawNebulas(dt, animationTimeSeconds)
+        drawBlackHoles(dt, animationTimeSeconds)
         drawDust(dt)
-        drawTrails(dt)
-        drawStarsAndPlanets(dt, timeSeconds)
+        drawTrails(dt, animationTimeSeconds)
+        drawStarsAndPlanets(dt, animationTimeSeconds)
     }
 
     fun release() {
@@ -307,6 +364,7 @@ class GlStarfieldRenderer(private val context: Context) {
         var planetVertexCount = 0
         val pxToNdcX = 2f / width.toFloat()
         val pxToNdcY = 2f / height.toFloat()
+        val wrappedTime = wrapPositive(timeSeconds, 240f)
 
         for (i in 0 until count) {
             val zVelocity = config.flightSpeed * starSpeed[i]
@@ -315,13 +373,15 @@ class GlStarfieldRenderer(private val context: Context) {
             starX[i] += starDriftX[i] * lateralScale
             starY[i] += starDriftY[i] * lateralScale
 
-            val projectedX = projectX(starX[i], starZ[i])
-            val projectedY = projectY(starY[i], starZ[i])
-            if (starZ[i] <= 0.035f || (starZ[i] < 0.15f && (abs(projectedX) > 1.45f || abs(projectedY) > 1.45f))) {
+            val rawProjectedX = projectX(starX[i], starZ[i])
+            val rawProjectedY = projectY(starY[i], starZ[i])
+            if (starZ[i] <= 0.035f || (starZ[i] < 0.15f && (abs(rawProjectedX) > 1.45f || abs(rawProjectedY) > 1.45f))) {
                 resetStar(i, randomDepth = false)
                 continue
             }
 
+            var projectedX = rawProjectedX
+            var projectedY = rawProjectedY
             if (projectedX < -1.18f || projectedX > 1.18f || projectedY < -1.18f || projectedY > 1.18f) {
                 continue
             }
@@ -336,18 +396,38 @@ class GlStarfieldRenderer(private val context: Context) {
             val scale = 1.0f / sqrt(starZ[i] + 0.18f)
             val baseSize = starBaseSize[i]
             val glowMultiplier = if (config.glowEnabled) 1.18f else 0.88f
-            val pointSize = (baseSize * (1.55f + scale * 3.65f) * glowMultiplier).coerceIn(0.75f, 30.0f)
+            var pointSize = (baseSize * (1.55f + scale * 3.65f) * glowMultiplier).coerceIn(0.75f, 30.0f)
+            pointSize *= when (starType[i]) {
+                TYPE_WHITE_DWARF -> 0.76f
+                TYPE_RED_GIANT -> 1.24f
+                TYPE_BLUE_GIANT -> 1.14f
+                TYPE_BROWN_DWARF -> 0.72f
+                TYPE_NEUTRON -> 0.58f
+                else -> 1f
+            }
+            pointSize = pointSize.coerceIn(0.65f, 36.0f)
 
             val minBrightness = min(config.starMinBrightness, config.starMaxBrightness).coerceIn(0f, 2.2f)
             val maxBrightness = max(config.starMinBrightness, config.starMaxBrightness).coerceIn(0.02f, 2.2f)
             val distanceBrightness = minBrightness + (maxBrightness - minBrightness) * distanceCurve
-            val alpha = distanceBrightness * starLuminosity[i] * fadeIn
+            var alpha = distanceBrightness * starLuminosity[i] * fadeIn
+            alpha *= when (starType[i]) {
+                TYPE_NEUTRON -> 0.40f + 0.60f * (0.5f + 0.5f * sin(wrappedTime * 8.0f + starPulsePhase[i]))
+                TYPE_BROWN_DWARF -> 0.60f
+                TYPE_RED_GIANT -> 1.08f
+                TYPE_BLUE_GIANT -> 1.12f
+                else -> 1f
+            }
+            val lensedStar = applyBlackHoleLensing(projectedX, projectedY, alpha)
+            projectedX = lensedStar[0]
+            projectedY = lensedStar[1]
+            alpha = lensedStar[2]
 
             val binaryFade = if (starIsBinary[i]) ((0.225f - starZ[i]) / 0.120f).coerceIn(0f, 1f).let { smooth01(it) } else 0f
             if (alpha > 0.004f) {
                 if (binaryFade > 0.015f) {
                     val orbitPx = pointSize * binarySeparation[i] * (0.70f + binaryFade * 0.68f)
-                    val angle = binaryPhase[i] + timeSeconds * binarySpeed[i]
+                    val angle = binaryPhase[i] + wrappedTime * binarySpeed[i]
                     val localX = cos(angle) * orbitPx
                     val localY = sin(angle) * orbitPx * binaryTilt[i] * binaryEccentricity[i]
                     val orientation = binaryOrbitAngle[i]
@@ -384,7 +464,7 @@ class GlStarfieldRenderer(private val context: Context) {
                 for (p in 0 until pCount) {
                     val index = i * MAX_PLANETS_PER_SYSTEM + p
                     val orbitPx = pointSize * planetOrbit[index] * (0.78f + closeFade * 0.5f)
-                    val angle = planetPhase[index] + timeSeconds * planetSpeed[index]
+                    val angle = planetPhase[index] + wrappedTime * planetSpeed[index]
                     val px = projectedX + cos(angle) * orbitPx * pxToNdcX
                     val py = projectedY + sin(angle) * orbitPx * planetTilt[index] * pxToNdcY
                     val pSize = (pointSize * planetSize[index] * (0.56f + closeFade * 0.38f)).coerceIn(0.65f, max(0.9f, pointSize * 0.28f))
@@ -394,12 +474,16 @@ class GlStarfieldRenderer(private val context: Context) {
                     val parentSizeInfluence = (pointSize / 24.0f).coerceIn(0.0f, 1.0f)
                     val parentColorInfluence = (0.2126f * starR[i] + 0.7152f * starG[i] + 0.0722f * starB[i]).coerceIn(0.45f, 1.12f)
                     val parentLight = (0.60f + starLuminosity[i] * 0.28f + parentSizeInfluence * 0.22f) * parentColorInfluence
-                    val pAlpha = (closeFade * closeFade * planetDistanceBrightness * parentLight * 0.82f).coerceIn(0f, 1.15f)
+                    var pAlpha = (closeFade * closeFade * planetDistanceBrightness * parentLight * 0.82f).coerceIn(0f, 1.15f)
                     val litR = (planetR[index] * 0.82f + starR[i] * 0.18f).coerceIn(0f, 1f)
                     val litG = (planetG[index] * 0.82f + starG[i] * 0.18f).coerceIn(0f, 1f)
                     val litB = (planetB[index] * 0.82f + starB[i] * 0.18f).coerceIn(0f, 1f)
-                    if (px > -1.08f && px < 1.08f && py > -1.08f && py < 1.08f && pSize < pointSize) {
-                        putPoint(planetBuffer, px, py, pSize, litR, litG, litB, pAlpha)
+                    val lensedPlanet = applyBlackHoleLensing(px, py, pAlpha)
+                    val finalPx = lensedPlanet[0]
+                    val finalPy = lensedPlanet[1]
+                    pAlpha = lensedPlanet[2]
+                    if (finalPx > -1.08f && finalPx < 1.08f && finalPy > -1.08f && finalPy < 1.08f && pSize < pointSize) {
+                        putPoint(planetBuffer, finalPx, finalPy, pSize, litR, litG, litB, pAlpha)
                         planetVertexCount++
                     }
                 }
@@ -454,7 +538,7 @@ class GlStarfieldRenderer(private val context: Context) {
         drawPointBuffer(dustBuffer, vertexCount)
     }
 
-    private fun drawTrails(dt: Float) {
+    private fun drawTrails(dt: Float, timeSeconds: Float) {
         if (!config.trailsEnabled) return
         val count = config.starCount.coerceIn(0, maxStars)
         lineBuffer.clear()
@@ -463,19 +547,27 @@ class GlStarfieldRenderer(private val context: Context) {
         for (i in 0 until count) {
             val z = starZ[i]
             if (z > 0.60f || z < 0.045f) continue
-            val currentX = projectX(starX[i], z)
-            val currentY = projectY(starY[i], z)
-            if (currentX < -1.15f || currentX > 1.15f || currentY < -1.15f || currentY > 1.15f) continue
+            val currentRawX = projectX(starX[i], z)
+            val currentRawY = projectY(starY[i], z)
+            if (currentRawX < -1.15f || currentRawX > 1.15f || currentRawY < -1.15f || currentRawY > 1.15f) continue
 
             val trailBackTime = dt * 4.2f
             val previousZ = z + config.flightSpeed * starSpeed[i] * trailBackTime
-            val previousX = projectX(starX[i] - starDriftX[i] * config.starDirectionDrift * config.flightSpeed * trailBackTime, previousZ)
-            val previousY = projectY(starY[i] - starDriftY[i] * config.starDirectionDrift * config.flightSpeed * trailBackTime, previousZ)
+            val previousRawX = projectX(starX[i] - starDriftX[i] * config.starDirectionDrift * config.flightSpeed * trailBackTime, previousZ)
+            val previousRawY = projectY(starY[i] - starDriftY[i] * config.starDirectionDrift * config.flightSpeed * trailBackTime, previousZ)
             val closeness = ((0.62f - z) / 0.58f).coerceIn(0f, 1f)
             val spawnFade = smooth01(starSpawnFade[i])
             val alpha = (0.06f + closeness * 0.22f) * spawnFade
-            putLineVertex(lineBuffer, previousX, previousY, starR[i], starG[i], starB[i], alpha)
-            putLineVertex(lineBuffer, currentX, currentY, starR[i], starG[i], starB[i], alpha * 0.55f)
+            val lensedPrev = applyBlackHoleLensing(previousRawX, previousRawY, alpha)
+            val previousX = lensedPrev[0]
+            val previousY = lensedPrev[1]
+            val previousAlpha = lensedPrev[2]
+            val lensedCurrent = applyBlackHoleLensing(currentRawX, currentRawY, alpha * 0.55f)
+            val currentX = lensedCurrent[0]
+            val currentY = lensedCurrent[1]
+            val currentAlpha = lensedCurrent[2]
+            putLineVertex(lineBuffer, previousX, previousY, starR[i], starG[i], starB[i], previousAlpha)
+            putLineVertex(lineBuffer, currentX, currentY, starR[i], starG[i], starB[i], currentAlpha)
             vertexCount += 2
         }
 
@@ -496,6 +588,104 @@ class GlStarfieldRenderer(private val context: Context) {
         lineBuffer.position(0)
     }
 
+    private fun drawBlackHoles(dt: Float, timeSeconds: Float) {
+        if (!config.blackHolesEnabled || config.blackHoleChance <= 0.001f) return
+        val wrappedTime = wrapPositive(timeSeconds, 240f)
+        val pxToNdcX = 2f / width.toFloat()
+        val pxToNdcY = 2f / height.toFloat()
+        blackHoleCoreBuffer.clear()
+        blackHoleDiskBuffer.clear()
+        var coreCount = 0
+        var diskCount = 0
+
+        for (i in 0 until MAX_BLACK_HOLES) {
+            val travel = config.flightSpeed * blackHoleSpeed[i] * dt * 0.42f
+            blackHoleZ[i] -= travel
+            blackHoleX[i] += blackHoleDriftX[i] * config.flightSpeed * dt * 0.12f
+            blackHoleY[i] += blackHoleDriftY[i] * config.flightSpeed * dt * 0.12f
+            blackHoleRot[i] = wrapAngle(blackHoleRot[i] + blackHoleSpin[i] * dt * 0.35f)
+
+            val projectedX = projectX(blackHoleX[i], blackHoleZ[i])
+            val projectedY = projectY(blackHoleY[i], blackHoleZ[i])
+            if (blackHoleZ[i] <= 0.05f || abs(projectedX) > 2.10f || abs(projectedY) > 2.10f) {
+                resetBlackHole(i, randomDepth = false)
+                continue
+            }
+            if (!blackHoleActive[i]) continue
+
+            val coreRadiusNdc = blackHoleCoreRadiusNdc(i)
+            val coreSizePx = (coreRadiusNdc * min(width, height).toFloat()).coerceIn(18f, 118f)
+            val influence = blackHoleInfluenceRadiusNdc(i)
+            if (projectedX + influence < -1.28f || projectedX - influence > 1.28f || projectedY + influence < -1.28f || projectedY - influence > 1.28f) {
+                continue
+            }
+
+            // v0.17 used increasing radius by segment, which could look like a faint stray spiral.
+            // This version uses compact elliptical rings, then draws the black core after the disk.
+            val visibility = smooth01(((1.95f - blackHoleZ[i]) / 1.45f).coerceIn(0f, 1f))
+                .coerceAtLeast(0.22f)
+            val diskRadiusPx = coreSizePx * 0.98f
+            val diskHeightPx = diskRadiusPx * (0.18f + blackHoleTilt[i] * 0.20f)
+            val segmentCount = 28
+
+            for (seg in 0 until segmentCount) {
+                val angle = blackHoleRot[i] + wrappedTime * (0.45f + blackHoleDiskHue[i] * 0.16f) +
+                    seg * ((Math.PI * 2.0) / segmentCount.toDouble()).toFloat()
+                val ripple = sin(angle * 2.0f + blackHoleDiskHue[i] * 4.0f)
+                val radiusJitter = 1.0f + ripple * 0.055f
+                val ox = cos(angle) * diskRadiusPx * radiusJitter * pxToNdcX
+                val oy = sin(angle) * diskHeightPx * radiusJitter * pxToNdcY
+
+                // Doppler-ish front/back brightness without making a spiral pattern.
+                val front = (0.5f + 0.5f * sin(angle + blackHoleRot[i])).coerceIn(0f, 1f)
+                val heat = (0.55f + front * 0.45f).coerceIn(0f, 1f)
+                val r = (0.86f + heat * 0.14f).coerceIn(0f, 1f)
+                val g = (0.30f + heat * 0.46f).coerceIn(0f, 1f)
+                val b = (0.07f + blackHoleDiskHue[i] * 0.22f + heat * 0.10f).coerceIn(0f, 1f)
+                val alpha = (0.055f + heat * 0.135f) * visibility
+                val pointSize = (coreSizePx * (0.060f + heat * 0.055f)).coerceIn(2.0f, 7.2f)
+                putPoint(blackHoleDiskBuffer, projectedX + ox, projectedY + oy, pointSize, r, g, b, alpha)
+                diskCount++
+            }
+
+            // A few compact inner hot points add texture without creating a large ghost ring.
+            for (seg in 0 until 8) {
+                val angle = blackHoleRot[i] * 1.2f - wrappedTime * 0.36f +
+                    seg * ((Math.PI * 2.0) / 8.0).toFloat()
+                val ox = cos(angle) * diskRadiusPx * 0.54f * pxToNdcX
+                val oy = sin(angle) * diskHeightPx * 0.54f * pxToNdcY
+                putPoint(
+                    blackHoleDiskBuffer,
+                    projectedX + ox,
+                    projectedY + oy,
+                    (coreSizePx * 0.045f).coerceIn(1.8f, 5.0f),
+                    1.0f,
+                    0.76f,
+                    0.34f,
+                    0.08f * visibility
+                )
+                diskCount++
+            }
+
+            // Outer shadow + event horizon. Drawn after disk so the center stays black.
+            putPoint(blackHoleCoreBuffer, projectedX, projectedY, coreSizePx * 1.35f, 0f, 0f, 0f, 0.46f)
+            coreCount++
+            putPoint(blackHoleCoreBuffer, projectedX, projectedY, coreSizePx * 0.92f, 0f, 0f, 0f, 0.98f)
+            coreCount++
+        }
+
+        if (diskCount > 0) {
+            blackHoleDiskBuffer.flip()
+            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE)
+            drawPointBuffer(blackHoleDiskBuffer, diskCount)
+        }
+        if (coreCount > 0) {
+            blackHoleCoreBuffer.flip()
+            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+            drawPointBuffer(blackHoleCoreBuffer, coreCount)
+        }
+    }
+
     private fun drawNebulas(dt: Float, timeSeconds: Float) {
         if (!config.nebulasEnabled || config.nebulaCount <= 0) return
         val count = config.nebulaCount.coerceIn(0, MAX_NEBULAS)
@@ -509,9 +699,9 @@ class GlStarfieldRenderer(private val context: Context) {
             nebulaZ[i] -= zStep
             nebulaX[i] += nebulaDriftX[i] * nebulaMotionSpeed * dt
             nebulaY[i] += nebulaDriftY[i] * nebulaMotionSpeed * dt
-            nebulaRot[i] += nebulaSpin[i] * (0.11f + motion * 0.19f) * dt
-            nebulaUvX[i] += nebulaUvSpeedX[i] * (0.018f + motion * 0.036f) * dt
-            nebulaUvY[i] += nebulaUvSpeedY[i] * (0.018f + motion * 0.036f) * dt
+            nebulaRot[i] = wrapAngle(nebulaRot[i] + nebulaSpin[i] * (0.11f + motion * 0.19f) * dt)
+            nebulaUvX[i] = wrapPositive(nebulaUvX[i] + nebulaUvSpeedX[i] * (0.018f + motion * 0.036f) * dt, 32f)
+            nebulaUvY[i] = wrapPositive(nebulaUvY[i] + nebulaUvSpeedY[i] * (0.018f + motion * 0.036f) * dt, 32f)
             nebulaSpawnFade[i] = (nebulaSpawnFade[i] + dt * (0.28f + motion * 0.20f)).coerceAtMost(1f)
 
             if (nebulaZ[i] <= -0.22f) {
@@ -596,7 +786,7 @@ class GlStarfieldRenderer(private val context: Context) {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, nebulaTexture)
         GLES20.glUniform1i(nebulaTextureHandle, 0)
-        GLES20.glUniform1f(nebulaTimeHandle, timeSeconds)
+        GLES20.glUniform1f(nebulaTimeHandle, wrapPositive(timeSeconds, 240f))
         val stride = QUAD_FLOATS * FLOAT_SIZE_BYTES
         nebulaBuffer.position(0)
         GLES20.glVertexAttribPointer(nebulaPositionHandle, 2, GLES20.GL_FLOAT, false, stride, nebulaBuffer)
@@ -613,6 +803,48 @@ class GlStarfieldRenderer(private val context: Context) {
         GLES20.glDisableVertexAttribArray(nebulaColorHandle)
         nebulaBuffer.position(0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+    }
+
+    private fun applyBlackHoleLensing(x: Float, y: Float, alpha: Float): FloatArray {
+        var lx = x
+        var ly = y
+        var la = alpha
+        if (config.blackHolesEnabled && config.blackHoleChance > 0.001f) {
+            for (i in 0 until MAX_BLACK_HOLES) {
+                if (!blackHoleActive[i]) continue
+                val z = blackHoleZ[i]
+                if (z <= 0.06f || z > 4.8f) continue
+                val bhX = projectX(blackHoleX[i], z)
+                val bhY = projectY(blackHoleY[i], z)
+                val influence = blackHoleInfluenceRadiusNdc(i)
+                val dx = lx - bhX
+                val dy = ly - bhY
+                val dist2 = dx * dx + dy * dy
+                if (dist2 >= influence * influence) continue
+                val dist = sqrt(max(0.00001f, dist2))
+                val norm = (1f - dist / influence).coerceIn(0f, 1f)
+                val bend = influence * (0.10f + norm * 0.20f)
+                lx += (dx / dist) * bend * norm
+                ly += (dy / dist) * bend * norm
+                if (dist < blackHoleCoreRadiusNdc(i) * 1.05f) {
+                    la *= 0.12f
+                } else {
+                    la *= (1.0f + norm * 0.10f)
+                }
+            }
+        }
+        lensingScratch[0] = lx
+        lensingScratch[1] = ly
+        lensingScratch[2] = la
+        return lensingScratch
+    }
+
+    private fun blackHoleCoreRadiusNdc(i: Int): Float {
+        return (blackHoleSize[i] / (max(0.18f, blackHoleZ[i]) * 0.96f)).coerceIn(0.040f, 0.13f)
+    }
+
+    private fun blackHoleInfluenceRadiusNdc(i: Int): Float {
+        return (blackHoleCoreRadiusNdc(i) * 4.8f).coerceIn(0.12f, 0.46f)
     }
 
     private fun drawPointBuffer(buffer: FloatBuffer, vertexCount: Int) {
@@ -634,6 +866,42 @@ class GlStarfieldRenderer(private val context: Context) {
         buffer.position(0)
     }
 
+    private fun resetClusters() {
+        for (i in 0 until MAX_CLUSTERS) {
+            val angle = randomRange(-0.60f, 0.65f)
+            val radius = randomRange(0.18f, 0.78f)
+            clusterCenterX[i] = cos(angle) * radius + centeredNoise() * 0.10f
+            clusterCenterY[i] = sin(angle * 1.35f) * radius * 0.55f + centeredNoise() * 0.10f
+            clusterWidth[i] = randomRange(0.12f, 0.34f)
+        }
+    }
+
+    private fun resetBlackHole(i: Int, randomDepth: Boolean) {
+        val chance = config.blackHoleChance.coerceIn(0f, 0.95f)
+        val active = config.blackHolesEnabled && random.nextFloat() < (0.02f + chance * 0.65f)
+        blackHoleActive[i] = active
+        val z = if (active) {
+            if (randomDepth) randomRange(1.40f, 4.60f) else randomRange(3.10f, 5.40f)
+        } else {
+            if (randomDepth) randomRange(4.60f, 7.20f) else randomRange(5.20f, 8.20f)
+        }
+        val screenX = if (active) randomRange(-0.60f, 0.60f) else randomRange(-1.00f, 1.00f)
+        val screenY = if (active) randomRange(-0.48f, 0.48f) else randomRange(-0.90f, 0.90f)
+        blackHoleZ[i] = z
+        blackHoleX[i] = screenX * z * aspect * FIELD_OF_VIEW
+        blackHoleY[i] = screenY * z * FIELD_OF_VIEW
+        blackHoleSize[i] = if (active) randomRange(0.12f, 0.22f) else randomRange(0.10f, 0.18f)
+        blackHoleSpeed[i] = randomRange(0.24f, 0.58f)
+        val driftAngle = randomRange(0f, (Math.PI * 2.0).toFloat())
+        val driftAmount = randomRange(0.012f, 0.042f)
+        blackHoleDriftX[i] = cos(driftAngle) * driftAmount
+        blackHoleDriftY[i] = sin(driftAngle) * driftAmount
+        blackHoleSpin[i] = randomRange(-1.0f, 1.0f).let { if (abs(it) < 0.25f) it + 0.35f else it }
+        blackHoleRot[i] = randomRange(0f, (Math.PI * 2.0).toFloat())
+        blackHoleTilt[i] = randomRange(0.25f, 0.95f)
+        blackHoleDiskHue[i] = randomRange(0f, 1f)
+    }
+
     private fun resetStar(i: Int, randomDepth: Boolean) {
         val z = if (randomDepth) randomRange(0.25f, 1.75f) else randomRange(1.05f, 1.92f)
         val spawn = randomStarSpawnScreenPosition()
@@ -650,7 +918,16 @@ class GlStarfieldRenderer(private val context: Context) {
         starSpawnFade[i] = if (randomDepth) randomRange(0.72f, 1.0f) else 0f
         starBaseSize[i] = weightedStarSize()
         setNaturalStarColor(i)
-        starLuminosity[i] = (starLuminosity[i] * apparentLuminosityMultiplier()).coerceIn(0.20f, 2.35f)
+        starPulsePhase[i] = randomRange(0f, (Math.PI * 2.0).toFloat())
+        starLuminosity[i] = (starLuminosity[i] * apparentLuminosityMultiplier()).coerceIn(0.16f, 2.55f)
+        starBaseSize[i] *= when (starType[i]) {
+            TYPE_WHITE_DWARF -> 0.72f
+            TYPE_RED_GIANT -> 1.26f
+            TYPE_BLUE_GIANT -> 1.16f
+            TYPE_BROWN_DWARF -> 0.64f
+            TYPE_NEUTRON -> 0.48f
+            else -> 1f
+        }
 
         val closeRoute = abs(screenX) < 0.30f && abs(screenY) < 0.30f
         starIsBinary[i] = closeRoute && random.nextFloat() < (config.binaryChance * 1.75f).coerceIn(0f, 0.72f)
@@ -743,29 +1020,60 @@ class GlStarfieldRenderer(private val context: Context) {
         val roll = random.nextFloat()
         val jitter = randomRange(-0.035f, 0.035f)
         when {
-            roll < 0.52f -> {
-                setStarColor(i, 1.00f, 0.94f + jitter, 0.82f + jitter) // warm white / G type feel
+            roll < 0.28f -> {
+                starType[i] = TYPE_WARM_WHITE
+                setStarColor(i, 1.00f, 0.95f + jitter, 0.84f + jitter)
                 starLuminosity[i] = randomRange(0.72f, 1.00f)
             }
-            roll < 0.72f -> {
-                setStarColor(i, 1.00f, 0.86f + jitter, 0.58f + jitter) // yellow orange
+            roll < 0.47f -> {
+                starType[i] = TYPE_YELLOW_ORANGE
+                setStarColor(i, 1.00f, 0.86f + jitter, 0.60f + jitter)
                 starLuminosity[i] = randomRange(0.62f, 0.92f)
             }
-            roll < 0.84f -> {
-                setStarColor(i, 1.00f, 0.64f + jitter, 0.38f + jitter) // orange/red-orange
+            roll < 0.61f -> {
+                starType[i] = TYPE_ORANGE_RED
+                setStarColor(i, 1.00f, 0.68f + jitter, 0.40f + jitter)
                 starLuminosity[i] = randomRange(0.48f, 0.78f)
             }
-            roll < 0.94f -> {
-                setStarColor(i, 0.82f + jitter, 0.90f + jitter, 1.00f) // blue white
-                starLuminosity[i] = randomRange(0.90f, 1.22f)
+            roll < 0.75f -> {
+                starType[i] = TYPE_RED_DWARF
+                setStarColor(i, 0.98f, 0.44f + jitter, 0.34f + jitter)
+                starLuminosity[i] = randomRange(0.28f, 0.56f)
             }
-            roll < 0.985f -> {
-                setStarColor(i, 0.62f + jitter, 0.75f + jitter, 1.00f) // hotter blue
-                starLuminosity[i] = randomRange(1.02f, 1.38f)
+            roll < 0.86f -> {
+                starType[i] = TYPE_BLUE_WHITE
+                setStarColor(i, 0.84f + jitter, 0.91f + jitter, 1.00f)
+                starLuminosity[i] = randomRange(0.92f, 1.22f)
+            }
+            roll < 0.92f -> {
+                starType[i] = TYPE_HOT_BLUE
+                setStarColor(i, 0.64f + jitter, 0.78f + jitter, 1.00f)
+                starLuminosity[i] = randomRange(1.02f, 1.36f)
+            }
+            roll < 0.955f -> {
+                starType[i] = TYPE_WHITE_DWARF
+                setStarColor(i, 0.94f + jitter, 0.97f + jitter, 1.00f)
+                starLuminosity[i] = randomRange(0.80f, 1.12f)
+            }
+            roll < 0.980f -> {
+                starType[i] = TYPE_RED_GIANT
+                setStarColor(i, 1.00f, 0.58f + jitter, 0.36f + jitter)
+                starLuminosity[i] = randomRange(1.00f, 1.38f)
+            }
+            roll < 0.992f -> {
+                starType[i] = TYPE_BLUE_GIANT
+                setStarColor(i, 0.62f + jitter, 0.80f + jitter, 1.00f)
+                starLuminosity[i] = randomRange(1.18f, 1.56f)
+            }
+            roll < 0.998f -> {
+                starType[i] = TYPE_BROWN_DWARF
+                setStarColor(i, 0.60f, 0.40f + jitter, 0.28f + jitter)
+                starLuminosity[i] = randomRange(0.16f, 0.34f)
             }
             else -> {
-                setStarColor(i, 1.00f, 0.38f + jitter, 0.28f + jitter) // rare red tint
-                starLuminosity[i] = randomRange(0.38f, 0.70f)
+                starType[i] = TYPE_NEUTRON
+                setStarColor(i, 0.78f + jitter, 0.90f + jitter, 1.00f)
+                starLuminosity[i] = randomRange(1.04f, 1.48f)
             }
         }
     }
@@ -829,11 +1137,21 @@ class GlStarfieldRenderer(private val context: Context) {
     }
 
     private fun randomStarSpawnScreenPosition(): Pair<Float, Float> {
+        val clusterAmount = config.clusterAmount.coerceIn(0f, 1f)
+        val useCluster = clusterAmount > 0.01f && random.nextFloat() < (0.10f + clusterAmount * 0.56f)
+        if (useCluster) {
+            val idx = random.nextInt(MAX_CLUSTERS)
+            val width = clusterWidth[idx] * (1.18f - clusterAmount * 0.42f)
+            val x = clusterCenterX[idx] + centeredNoise() * width
+            val y = clusterCenterY[idx] + centeredNoise() * width * 0.72f
+            if (x > -1.08f && x < 1.08f && y > -1.08f && y < 1.08f) {
+                return Pair(x, y)
+            }
+        }
+
         val band = config.galacticPlaneStrength.coerceIn(0f, 1f)
         val useBand = band > 0.01f && random.nextFloat() < (0.12f + band * 0.58f)
         if (useBand) {
-            // A subtle diagonal Milky-Way-like density plane. It is a spawn bias, not a flat image layer,
-            // so it still feels like real depth when the stars move toward the camera.
             val angle = -0.30f
             val along = randomRange(-1.42f, 1.42f)
             val bandWidth = 0.10f + (1f - band) * 0.34f
@@ -1011,6 +1329,18 @@ class GlStarfieldRenderer(private val context: Context) {
         n = (n xor (n ushr 13)) * 1274126177
         n = n xor (n ushr 16)
         return (n and 0x00FFFFFF).toFloat() / 16777215f
+    }
+
+    private fun wrapAngle(value: Float): Float {
+        val twoPi = (Math.PI * 2.0).toFloat()
+        return wrapPositive(value, twoPi)
+    }
+
+    private fun wrapPositive(value: Float, period: Float): Float {
+        if (period <= 0f) return 0f
+        var wrapped = value % period
+        if (wrapped < 0f) wrapped += period
+        return wrapped
     }
 
     private fun randomRange(minValue: Float, maxValue: Float): Float {

@@ -33,7 +33,7 @@ class WallpaperSettingsActivity : Activity() {
         }
 
         root.addView(header("Starfield Settings"))
-        root.addView(body("This OpenGL build uses the GPU for high-density rendering, natural weighted star colors, rare close solar-system and binary-star flybys, soft noise-textured nebula flybys, subtle non-perfect star motion, a galactic-plane density band, interstellar dust, and distance-based star/planet brightness controls."))
+        root.addView(body("This OpenGL build uses the GPU for high-density rendering, more varied star types, rare close solar-system and binary-star flybys, star clusters, soft noise-textured nebula flybys, subtle non-perfect star motion, a galactic-plane density band, interstellar dust, and optional black-hole events with light warping."))
 
         root.addView(sectionLabel("Performance"))
         root.addView(fpsSelector())
@@ -61,6 +61,14 @@ class WallpaperSettingsActivity : Activity() {
             min = 0,
             max = 100,
             defaultValue = StarfieldPrefs.DEFAULT_INTERSTELLAR_DUST_PERCENT,
+            valueSuffix = "%"
+        ))
+        root.addView(intSlider(
+            label = "Star cluster amount",
+            key = StarfieldPrefs.KEY_STAR_CLUSTERS,
+            min = 0,
+            max = 100,
+            defaultValue = StarfieldPrefs.DEFAULT_STAR_CLUSTER_PERCENT,
             valueSuffix = "%"
         ))
 
@@ -131,6 +139,17 @@ class WallpaperSettingsActivity : Activity() {
             min = 10,
             max = 200,
             defaultValue = StarfieldPrefs.DEFAULT_PLANET_MAX_BRIGHTNESS_PERCENT,
+            valueSuffix = "%"
+        ))
+
+        root.addView(sectionLabel("Rare events"))
+        root.addView(checkBox("Occasional black holes", StarfieldPrefs.KEY_BLACK_HOLES, StarfieldPrefs.DEFAULT_BLACK_HOLES))
+        root.addView(intSlider(
+            label = "Black-hole event chance",
+            key = StarfieldPrefs.KEY_BLACK_HOLE_CHANCE,
+            min = 0,
+            max = 100,
+            defaultValue = StarfieldPrefs.DEFAULT_BLACK_HOLE_CHANCE_PERCENT,
             valueSuffix = "%"
         ))
 
